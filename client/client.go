@@ -71,7 +71,7 @@ func handleMessageInput(client *Client, serverConnection proto.MessagingServiceC
 }
 
 func handleLeave(client *Client, serverConnection proto.MessagingServiceClient) {
-	ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "left the server"})
+	ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "leave"})
 	if err != nil {
 		log.Fatalln("Could not leave server")
 	}
@@ -103,8 +103,8 @@ func printReceivedMessage(stream proto.MessagingService_JoinChatClient) {
 			break
 		}
 		if err != nil {
-			log.Fatalf("client.ListFeatures failed: %v", err)
+			log.Fatalf("client failed: %v", err)
 		}
-		log.Printf("Feature: id: %d name: %s, message: %s", message.Id, message.ClientName, message.Message)
+		log.Printf("Message: id: %d name: %s, message: %s", message.Id, message.ClientName, message.Message)
 	}
 }

@@ -64,50 +64,62 @@ func startServer(server *Server) {
 }
 
 func (s *Server) SendMessage(ctx context.Context, in *proto.ClientSendMessage) (*proto.Ack, error) {
-	switch in.Message {
-	case "join":
-	//tilføj til array
-	case "leave":
-	//fjern fra array
-	default:
-		log.Printf("Client with name %s sent this message: %s to the server\n", in.ClientName, in.Message)
-		var mes = &Message{
-			id:      in.Id,
-			name:    in.ClientName,
-			message: in.Message,
-		}
-		for i := 0; i < count; i++ {
-			log.Printf("sending message in channel, index is %d, count is %d", i, count)
-			channels[i] <- *mes
-			log.Println("has sent to channel")
-		}
+	log.Printf("Client with name %s sent this message: %s\n", in.ClientName, in.Message)
+	var message = &Message{
+		id:      in.Id,
+		name:    in.ClientName,
+		message: in.Message,
 	}
+	if in.Message == "leave" {
+		message.message = in.ClientName + " left Chitty-Chat at Lamport time L"
+	}
+
+	sendMessagesToChannels(message)
 
 	return &proto.Ack{
 		Success: "Succes!",
 	}, nil
 }
 
-func (s *Server) JoinChat(in *proto.ClientSendMessage, stream proto.MessagingService_JoinChatServer) error {
-	channel1 := make(chan Message)
-	var index = count
-	channels[index] = channel1
-	count++
-	log.Printf("channel array has length %d", len(channels))
-	log.Printf("count is  %d", count)
-	for {
-		// wait to rec
-		var chanMes = <-channels[index]
+func sendMessagesToChannels(message *Message) {
+	for i := 0; i < count; i++ {
+		channels[i] <- *message
+	}
+}
 
-		mes := &proto.ClientSendMessage{
-			Id:         chanMes.id,
-			ClientName: chanMes.name,
-			Message:    chanMes.message,
-		}
-		if err := stream.Send(mes); err != nil {
+func (s *Server) JoinChat(in *proto.ClientSendMessage, stream proto.MessagingService_JoinChatServer) error {
+	sendMessagesToChannels(&Message{
+		id:      in.Id,
+		name:    in.ClientName,
+		message: in.ClientName + " joined Chitty-Chat at Lamport time L",
+	})
+	var index = creatingNewChannelAtIndex()
+	for {
+		var messageToBeBroadcasted = <-channels[index]
+
+		if err := sendMessage(messageToBeBroadcasted, stream); err != nil {
 			return err
 		}
+	}
+}
 
+func sendMessage(message Message, stream proto.MessagingService_JoinChatServer) error {
+	mes := &proto.ClientSendMessage{
+		Id:         message.id,
+		ClientName: message.name,
+		Message:    message.message,
 	}
 
+	if err := stream.Send(mes); err != nil {
+		return err
+	}
+	return nil
+}
+
+func creatingNewChannelAtIndex() int {
+	channel := make(chan Message)
+	var index = count
+	channels[index] = channel
+	count++
+	return index
 }
