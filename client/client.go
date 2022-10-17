@@ -29,14 +29,11 @@ var (
 func main() {
 
 	flag.Parse()
-
 	client := &Client{
 		name:       *clientName,
 		portNumber: *clientPort,
 	}
-
 	go startClient(client)
-
 	for {
 		time.Sleep(100 * time.Second)
 	}
@@ -46,65 +43,68 @@ func startClient(client *Client) {
 
 	serverConnection := getServerConnection()
 
-	go listen(client, serverConnection)
+	go establishConnectionToChat(client, serverConnection)
 
+	readInput(client, serverConnection)
+}
+
+func readInput(client *Client, serverConnection proto.MessagingServiceClient) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		input := scanner.Text()
 
-		log.Printf("Client intputted %s\n", input)
-
 		if input == "leave" {
-			ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "left the server"})
-
-			if err != nil {
-				log.Fatalln("Could not leave server")
-			}
-			//todo implement leaving
-			log.Printf("Leave: %s\n", ack)
-			os.Exit(0)
+			handleLeave(client, serverConnection)
 		} else {
-			ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: input})
-
-			if err != nil {
-				log.Fatalln("Could not get time")
-			}
-
-			log.Printf("Server says %s\n", ack)
+			handleMessageInput(client, serverConnection, input)
 		}
 	}
 }
 
+func handleMessageInput(client *Client, serverConnection proto.MessagingServiceClient, input string) {
+	ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: input})
+
+	if err != nil {
+		log.Fatalln("Could not get time")
+	}
+	log.Printf("Server says %s\n", ack)
+}
+
+func handleLeave(client *Client, serverConnection proto.MessagingServiceClient) {
+	ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "left the server"})
+	if err != nil {
+		log.Fatalln("Could not leave server")
+	}
+	log.Printf("Leave: %s\n", ack)
+	os.Exit(0)
+}
+
 func getServerConnection() proto.MessagingServiceClient {
-
 	conn, err := grpc.Dial(":"+strconv.Itoa(*serverPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
-
 	if err != nil {
 		log.Fatalln("Could not dial server")
 	}
 	log.Printf("Joined the server")
-
 	return proto.NewMessagingServiceClient(conn)
 }
 
-func listen(client *Client, serverConnection proto.MessagingServiceClient) {
-
+func establishConnectionToChat(client *Client, serverConnection proto.MessagingServiceClient) {
 	stream, err := serverConnection.JoinChat(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "Joined the server"})
 	if err != nil {
 		log.Fatalln("could not send join chat")
 	}
+	printReceivedMessage(stream)
+}
 
-	log.Println("join chat called")
-
+func printReceivedMessage(stream proto.MessagingService_JoinChatClient) {
 	for {
-		feature, err := stream.Recv()
+		message, err := stream.Recv()
 		if err == io.EOF {
 			break
 		}
 		if err != nil {
 			log.Fatalf("client.ListFeatures failed: %v", err)
 		}
-		log.Printf("Feature: id: %d name: %s, message: %s", feature.Id, feature.ClientName, feature.Message)
+		log.Printf("Feature: id: %d name: %s, message: %s", message.Id, message.ClientName, message.Message)
 	}
-
 }
