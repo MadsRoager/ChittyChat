@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+package awesomeProject;
+
+option go_package = "proto/proto";
+
+
+message clientSendMessage {
+  string clientName = 2;
+  string message = 3;
+}
+
+message ack {
+  string success = 1;
+}
+
+service MessagingService {
+  rpc SendMessage(clientSendMessage) returns (ack);
+}
