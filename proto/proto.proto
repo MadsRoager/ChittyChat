@@ -4,10 +4,10 @@ package awesomeProject;
 
 option go_package = "proto/proto";
 
-
 message clientSendMessage {
-  string clientName = 2;
-  string message = 3;
+  string clientName = 1;
+  string message = 2;
+  int64 id = 3;
 }
 
 message ack {
@@ -16,4 +16,5 @@ message ack {
 
 service MessagingService {
   rpc SendMessage(clientSendMessage) returns (ack);
+  rpc JoinChat(clientSendMessage) returns (stream clientSendMessage);
 }

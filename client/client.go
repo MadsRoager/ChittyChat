@@ -5,12 +5,14 @@ import (
 	"bufio"
 	"context"
 	"flag"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"io"
 	"log"
 	"os"
 	"strconv"
 	"time"
+
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Client struct {
@@ -36,18 +38,15 @@ func main() {
 	go startClient(client)
 
 	for {
-		time.Sleep(100)
+		time.Sleep(100 * time.Second)
 	}
 }
 
 func startClient(client *Client) {
 
 	serverConnection := getServerConnection()
-	ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "Joined the server"})
-	if err != nil {
-		log.Fatalln("could not send join message")
-	}
-	log.Printf("%s", ack)
+
+	go listen(client, serverConnection)
 
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
@@ -86,4 +85,26 @@ func getServerConnection() proto.MessagingServiceClient {
 	log.Printf("Joined the server")
 
 	return proto.NewMessagingServiceClient(conn)
+}
+
+func listen(client *Client, serverConnection proto.MessagingServiceClient) {
+
+	stream, err := serverConnection.JoinChat(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "Joined the server"})
+	if err != nil {
+		log.Fatalln("could not send join chat")
+	}
+
+	log.Println("join chat called")
+
+	for {
+		feature, err := stream.Recv()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			log.Fatalf("client.ListFeatures failed: %v", err)
+		}
+		log.Printf("Feature: id: %d name: %s, message: %s", feature.Id, feature.ClientName, feature.Message)
+	}
+
 }
