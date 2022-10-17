@@ -24,7 +24,7 @@ type Message struct {
 	message string
 }
 
-var channels = make([]chan Message, 1)
+var channels [10]chan Message
 var count = 0
 
 var port = flag.Int("port", 8080, "server port number")
@@ -76,9 +76,10 @@ func (s *Server) SendMessage(ctx context.Context, in *proto.ClientSendMessage) (
 			name:    in.ClientName,
 			message: in.Message,
 		}
-		for _, c := range channels {
-			log.Println("sending message in channel")
-			c <- *mes
+		for i := 0; i < count; i++ {
+			log.Printf("sending message in channel, index is %d, count is %d", i, count)
+			channels[i] <- *mes
+			log.Println("has sent to channel")
 		}
 	}
 
@@ -90,8 +91,10 @@ func (s *Server) SendMessage(ctx context.Context, in *proto.ClientSendMessage) (
 func (s *Server) JoinChat(in *proto.ClientSendMessage, stream proto.MessagingService_JoinChatServer) error {
 	channel1 := make(chan Message)
 	var index = count
-	channels = append(channels, channel1)
+	channels[index] = channel1
 	count++
+	log.Printf("channel array has length %d", len(channels))
+	log.Printf("count is  %d", count)
 	for {
 		// wait to rec
 		var chanMes = <-channels[index]
