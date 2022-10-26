@@ -99,7 +99,7 @@ func getServerConnection(c *Client) proto.MessagingServiceClient {
 }
 
 func establishConnectionToChat(client *Client, serverConnection proto.MessagingServiceClient) {
-	stream, err := serverConnection.JoinChat(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "Joined the server", TimeStamp: int64(client.timestamp)})
+	stream, err := serverConnection.JoinChat(context.Background(), &proto.ClientSendMessage{ClientName: client.name, TimeStamp: int64(client.timestamp)})
 	if err != nil {
 		log.Fatalln("could not send join chat")
 	}
@@ -116,7 +116,7 @@ func printReceivedMessage(stream proto.MessagingService_JoinChatClient, c *Clien
 			log.Fatalf("client failed: %v", err)
 		}
 		c.updateTimestamp(int(message.TimeStamp), &m)
-		log.Printf("Lamport timestamp: %d, Message: id: %d name: %s, message: %s", c.timestamp, message.Id, message.ClientName, message.Message)
+		log.Printf("Lamport timestamp: %d, id: %d name: %s, message: %s", c.timestamp, message.Id, message.ClientName, message.Message)
 	}
 }
 

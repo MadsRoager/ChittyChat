@@ -95,12 +95,16 @@ func sendMessagesToChannels(message *Message) {
 }
 
 func (s *Server) JoinChat(in *proto.ClientSendMessage, stream proto.MessagingService_JoinChatServer) error {
+	s.updateTimestamp(int(in.TimeStamp), &m)
+	log.Printf("Lamport timestamp: %d, Client with name %s joined Chitty-Chat\n", s.timestamp, in.ClientName)
+
 	sendMessagesToChannels(&Message{
 		id:      in.Id,
 		name:    in.ClientName,
 		message: in.ClientName + " joined Chitty-Chat",
 	})
 	var index = creatingNewChannelAtIndex()
+
 	for {
 		var messageToBeBroadcasted = <-channels[index]
 
