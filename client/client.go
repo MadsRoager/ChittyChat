@@ -51,41 +51,39 @@ func startClient(client *Client) {
 	serverConnection := getServerConnection(client)
 
 	go establishConnectionToChat(client, serverConnection)
-
-	readInput(client, serverConnection)
 }
 
-func readInput(client *Client, serverConnection proto.MessagingServiceClient) {
+func readInput(client *Client, serverConnection proto.MessagingServiceClient, stream proto.MessagingService_ChatClient) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
 		client.updateTimestamp(client.timestamp, &m)
 
 		input := scanner.Text()
 		if input == "leave" {
-			handleLeave(client, serverConnection)
+			handleLeave(client, serverConnection, stream)
+			time.Sleep(1 * time.Second)
+			os.Exit(0)
 		} else {
-			handleMessageInput(client, serverConnection, input)
+			handleMessageInput(client, serverConnection, input, stream)
 		}
 	}
 }
 
-func handleMessageInput(client *Client, serverConnection proto.MessagingServiceClient, input string) {
+func handleMessageInput(client *Client, serverConnection proto.MessagingServiceClient, input string, stream proto.MessagingService_ChatClient) {
 	log.Printf("Lamport timestamp %d, Sending message", client.timestamp)
-
-	_, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: input, TimeStamp: int64(client.timestamp)})
-
+	err := stream.Send(&proto.ClientSendMessage{ClientName: client.name, Message: input, TimeStamp: int64(client.timestamp)})
 	if err != nil {
-		log.Fatalln("Could not get time")
+		log.Fatalln("Could not send message")
 	}
 }
 
-func handleLeave(client *Client, serverConnection proto.MessagingServiceClient) {
+func handleLeave(client *Client, serverConnection proto.MessagingServiceClient, stream proto.MessagingService_ChatClient) {
 	log.Printf("Lamport timestamp %d, Leaving", client.timestamp)
-	_, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "leave", TimeStamp: int64(client.timestamp)})
+	err := stream.Send(&proto.ClientSendMessage{ClientName: client.name, Message: "leave", TimeStamp: int64(client.timestamp)})
+
 	if err != nil {
 		log.Fatalln("Could not leave server")
 	}
-	os.Exit(0)
 }
 
 func getServerConnection(c *Client) proto.MessagingServiceClient {
@@ -99,18 +97,25 @@ func getServerConnection(c *Client) proto.MessagingServiceClient {
 }
 
 func establishConnectionToChat(client *Client, serverConnection proto.MessagingServiceClient) {
-	stream, err := serverConnection.JoinChat(context.Background(), &proto.ClientSendMessage{ClientName: client.name, TimeStamp: int64(client.timestamp)})
+	stream, err := serverConnection.Chat(context.Background())
 	if err != nil {
 		log.Fatalln("could not send join chat")
 	}
-	printReceivedMessage(stream, client)
+	waitc := make(chan struct{})
+	stream.Send(&proto.ClientSendMessage{ClientName: client.name, Message: "Joined the server", TimeStamp: int64(client.timestamp)})
+	go printReceivedMessage(stream, client, waitc)
+
+	readInput(client, serverConnection, stream)
+	stream.CloseSend()
+	<-waitc
 }
 
-func printReceivedMessage(stream proto.MessagingService_JoinChatClient, c *Client) {
+func printReceivedMessage(stream proto.MessagingService_ChatClient, c *Client, waitc chan struct{}) {
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
-			break
+			close(waitc)
+			return
 		}
 		if err != nil {
 			log.Fatalf("client failed: %v", err)

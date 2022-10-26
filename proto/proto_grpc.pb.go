@@ -22,8 +22,7 @@ const _ = grpc.SupportPackageIsVersion7
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type MessagingServiceClient interface {
-	SendMessage(ctx context.Context, in *ClientSendMessage, opts ...grpc.CallOption) (*Ack, error)
-	JoinChat(ctx context.Context, in *ClientSendMessage, opts ...grpc.CallOption) (MessagingService_JoinChatClient, error)
+	Chat(ctx context.Context, opts ...grpc.CallOption) (MessagingService_ChatClient, error)
 }
 
 type messagingServiceClient struct {
@@ -34,40 +33,30 @@ func NewMessagingServiceClient(cc grpc.ClientConnInterface) MessagingServiceClie
 	return &messagingServiceClient{cc}
 }
 
-func (c *messagingServiceClient) SendMessage(ctx context.Context, in *ClientSendMessage, opts ...grpc.CallOption) (*Ack, error) {
-	out := new(Ack)
-	err := c.cc.Invoke(ctx, "/awesomeProject.MessagingService/SendMessage", in, out, opts...)
+func (c *messagingServiceClient) Chat(ctx context.Context, opts ...grpc.CallOption) (MessagingService_ChatClient, error) {
+	stream, err := c.cc.NewStream(ctx, &MessagingService_ServiceDesc.Streams[0], "/awesomeProject.MessagingService/Chat", opts...)
 	if err != nil {
 		return nil, err
 	}
-	return out, nil
-}
-
-func (c *messagingServiceClient) JoinChat(ctx context.Context, in *ClientSendMessage, opts ...grpc.CallOption) (MessagingService_JoinChatClient, error) {
-	stream, err := c.cc.NewStream(ctx, &MessagingService_ServiceDesc.Streams[0], "/awesomeProject.MessagingService/JoinChat", opts...)
-	if err != nil {
-		return nil, err
-	}
-	x := &messagingServiceJoinChatClient{stream}
-	if err := x.ClientStream.SendMsg(in); err != nil {
-		return nil, err
-	}
-	if err := x.ClientStream.CloseSend(); err != nil {
-		return nil, err
-	}
+	x := &messagingServiceChatClient{stream}
 	return x, nil
 }
 
-type MessagingService_JoinChatClient interface {
+type MessagingService_ChatClient interface {
+	Send(*ClientSendMessage) error
 	Recv() (*ClientSendMessage, error)
 	grpc.ClientStream
 }
 
-type messagingServiceJoinChatClient struct {
+type messagingServiceChatClient struct {
 	grpc.ClientStream
 }
 
-func (x *messagingServiceJoinChatClient) Recv() (*ClientSendMessage, error) {
+func (x *messagingServiceChatClient) Send(m *ClientSendMessage) error {
+	return x.ClientStream.SendMsg(m)
+}
+
+func (x *messagingServiceChatClient) Recv() (*ClientSendMessage, error) {
 	m := new(ClientSendMessage)
 	if err := x.ClientStream.RecvMsg(m); err != nil {
 		return nil, err
@@ -79,8 +68,7 @@ func (x *messagingServiceJoinChatClient) Recv() (*ClientSendMessage, error) {
 // All implementations must embed UnimplementedMessagingServiceServer
 // for forward compatibility
 type MessagingServiceServer interface {
-	SendMessage(context.Context, *ClientSendMessage) (*Ack, error)
-	JoinChat(*ClientSendMessage, MessagingService_JoinChatServer) error
+	Chat(MessagingService_ChatServer) error
 	mustEmbedUnimplementedMessagingServiceServer()
 }
 
@@ -88,11 +76,8 @@ type MessagingServiceServer interface {
 type UnimplementedMessagingServiceServer struct {
 }
 
-func (UnimplementedMessagingServiceServer) SendMessage(context.Context, *ClientSendMessage) (*Ack, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SendMessage not implemented")
-}
-func (UnimplementedMessagingServiceServer) JoinChat(*ClientSendMessage, MessagingService_JoinChatServer) error {
-	return status.Errorf(codes.Unimplemented, "method JoinChat not implemented")
+func (UnimplementedMessagingServiceServer) Chat(MessagingService_ChatServer) error {
+	return status.Errorf(codes.Unimplemented, "method Chat not implemented")
 }
 func (UnimplementedMessagingServiceServer) mustEmbedUnimplementedMessagingServiceServer() {}
 
@@ -107,43 +92,30 @@ func RegisterMessagingServiceServer(s grpc.ServiceRegistrar, srv MessagingServic
 	s.RegisterService(&MessagingService_ServiceDesc, srv)
 }
 
-func _MessagingService_SendMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(ClientSendMessage)
-	if err := dec(in); err != nil {
+func _MessagingService_Chat_Handler(srv interface{}, stream grpc.ServerStream) error {
+	return srv.(MessagingServiceServer).Chat(&messagingServiceChatServer{stream})
+}
+
+type MessagingService_ChatServer interface {
+	Send(*ClientSendMessage) error
+	Recv() (*ClientSendMessage, error)
+	grpc.ServerStream
+}
+
+type messagingServiceChatServer struct {
+	grpc.ServerStream
+}
+
+func (x *messagingServiceChatServer) Send(m *ClientSendMessage) error {
+	return x.ServerStream.SendMsg(m)
+}
+
+func (x *messagingServiceChatServer) Recv() (*ClientSendMessage, error) {
+	m := new(ClientSendMessage)
+	if err := x.ServerStream.RecvMsg(m); err != nil {
 		return nil, err
 	}
-	if interceptor == nil {
-		return srv.(MessagingServiceServer).SendMessage(ctx, in)
-	}
-	info := &grpc.UnaryServerInfo{
-		Server:     srv,
-		FullMethod: "/awesomeProject.MessagingService/SendMessage",
-	}
-	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(MessagingServiceServer).SendMessage(ctx, req.(*ClientSendMessage))
-	}
-	return interceptor(ctx, in, info, handler)
-}
-
-func _MessagingService_JoinChat_Handler(srv interface{}, stream grpc.ServerStream) error {
-	m := new(ClientSendMessage)
-	if err := stream.RecvMsg(m); err != nil {
-		return err
-	}
-	return srv.(MessagingServiceServer).JoinChat(m, &messagingServiceJoinChatServer{stream})
-}
-
-type MessagingService_JoinChatServer interface {
-	Send(*ClientSendMessage) error
-	grpc.ServerStream
-}
-
-type messagingServiceJoinChatServer struct {
-	grpc.ServerStream
-}
-
-func (x *messagingServiceJoinChatServer) Send(m *ClientSendMessage) error {
-	return x.ServerStream.SendMsg(m)
+	return m, nil
 }
 
 // MessagingService_ServiceDesc is the grpc.ServiceDesc for MessagingService service.
@@ -152,17 +124,13 @@ func (x *messagingServiceJoinChatServer) Send(m *ClientSendMessage) error {
 var MessagingService_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "awesomeProject.MessagingService",
 	HandlerType: (*MessagingServiceServer)(nil),
-	Methods: []grpc.MethodDesc{
-		{
-			MethodName: "SendMessage",
-			Handler:    _MessagingService_SendMessage_Handler,
-		},
-	},
+	Methods:     []grpc.MethodDesc{},
 	Streams: []grpc.StreamDesc{
 		{
-			StreamName:    "JoinChat",
-			Handler:       _MessagingService_JoinChat_Handler,
+			StreamName:    "Chat",
+			Handler:       _MessagingService_Chat_Handler,
 			ServerStreams: true,
+			ClientStreams: true,
 		},
 	},
 	Metadata: "proto/proto.proto",

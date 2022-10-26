@@ -11,11 +11,6 @@ message clientSendMessage {
   int64 timeStamp = 4;
 }
 
-message ack {
-  string success = 1;
-}
-
 service MessagingService {
-  rpc SendMessage(clientSendMessage) returns (ack);
-  rpc JoinChat(clientSendMessage) returns (stream clientSendMessage);
+  rpc Chat(stream clientSendMessage) returns (stream clientSendMessage);
 }
