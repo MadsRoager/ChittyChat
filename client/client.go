@@ -9,6 +9,7 @@ import (
 	"log"
 	"os"
 	"strconv"
+	"sync"
 	"time"
 
 	"google.golang.org/grpc"
@@ -18,6 +19,7 @@ import (
 type Client struct {
 	name       string
 	portNumber int
+	timestamp  int
 }
 
 var (
@@ -26,12 +28,15 @@ var (
 	clientName = flag.String("clientName", "DefaultName", "client name")
 )
 
+var m sync.Mutex
+
 func main() {
 
 	flag.Parse()
 	client := &Client{
 		name:       *clientName,
 		portNumber: *clientPort,
+		timestamp:  0,
 	}
 	go startClient(client)
 	for {
@@ -41,7 +46,9 @@ func main() {
 
 func startClient(client *Client) {
 
-	serverConnection := getServerConnection()
+	log.Printf("Lamport timestamp %d, Client started", client.timestamp)
+
+	serverConnection := getServerConnection(client)
 
 	go establishConnectionToChat(client, serverConnection)
 
@@ -51,8 +58,9 @@ func startClient(client *Client) {
 func readInput(client *Client, serverConnection proto.MessagingServiceClient) {
 	scanner := bufio.NewScanner(os.Stdin)
 	for scanner.Scan() {
-		input := scanner.Text()
+		client.updateTimestamp(client.timestamp, &m)
 
+		input := scanner.Text()
 		if input == "leave" {
 			handleLeave(client, serverConnection)
 		} else {
@@ -62,41 +70,43 @@ func readInput(client *Client, serverConnection proto.MessagingServiceClient) {
 }
 
 func handleMessageInput(client *Client, serverConnection proto.MessagingServiceClient, input string) {
-	ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: input})
+	log.Printf("Lamport timestamp %d, Sending message", client.timestamp)
+
+	_, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: input, TimeStamp: int64(client.timestamp)})
 
 	if err != nil {
 		log.Fatalln("Could not get time")
 	}
-	log.Printf("Server says %s\n", ack)
 }
 
 func handleLeave(client *Client, serverConnection proto.MessagingServiceClient) {
-	ack, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "leave"})
+	log.Printf("Lamport timestamp %d, Leaving", client.timestamp)
+	_, err := serverConnection.SendMessage(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "leave", TimeStamp: int64(client.timestamp)})
 	if err != nil {
 		log.Fatalln("Could not leave server")
 	}
-	log.Printf("Leave: %s\n", ack)
 	os.Exit(0)
 }
 
-func getServerConnection() proto.MessagingServiceClient {
+func getServerConnection(c *Client) proto.MessagingServiceClient {
 	conn, err := grpc.Dial(":"+strconv.Itoa(*serverPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalln("Could not dial server")
 	}
-	log.Printf("Joined the server")
+	c.updateTimestamp(c.timestamp, &m)
+	log.Printf("Lamport timestamp: %d, Joined the server", c.timestamp)
 	return proto.NewMessagingServiceClient(conn)
 }
 
 func establishConnectionToChat(client *Client, serverConnection proto.MessagingServiceClient) {
-	stream, err := serverConnection.JoinChat(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "Joined the server"})
+	stream, err := serverConnection.JoinChat(context.Background(), &proto.ClientSendMessage{ClientName: client.name, Message: "Joined the server", TimeStamp: int64(client.timestamp)})
 	if err != nil {
 		log.Fatalln("could not send join chat")
 	}
-	printReceivedMessage(stream)
+	printReceivedMessage(stream, client)
 }
 
-func printReceivedMessage(stream proto.MessagingService_JoinChatClient) {
+func printReceivedMessage(stream proto.MessagingService_JoinChatClient, c *Client) {
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
@@ -105,6 +115,21 @@ func printReceivedMessage(stream proto.MessagingService_JoinChatClient) {
 		if err != nil {
 			log.Fatalf("client failed: %v", err)
 		}
-		log.Printf("Message: id: %d name: %s, message: %s", message.Id, message.ClientName, message.Message)
+		c.updateTimestamp(int(message.TimeStamp), &m)
+		log.Printf("Lamport timestamp: %d, Message: id: %d name: %s, message: %s", c.timestamp, message.Id, message.ClientName, message.Message)
 	}
+}
+
+func (c *Client) updateTimestamp(newTimestamp int, m *sync.Mutex) {
+	m.Lock()
+	c.timestamp = syncTimestamp(c.timestamp, newTimestamp)
+	c.timestamp++
+	m.Unlock()
+}
+
+func syncTimestamp(new int, old int) int {
+	if new < old {
+		return old
+	}
+	return new
 }

@@ -8,6 +8,7 @@ message clientSendMessage {
   string clientName = 1;
   string message = 2;
   int64 id = 3;
+  int64 timeStamp = 4;
 }
 
 message ack {
