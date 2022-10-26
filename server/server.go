@@ -26,9 +26,7 @@ type Message struct {
 	message string
 }
 
-var channels [100]chan Message
-var deleted [100]int
-var deleteCount = 0
+var streams [100]proto.MessagingService_ChatServer
 var count = 0
 var m sync.Mutex
 
@@ -69,23 +67,15 @@ func startServer(server *Server) {
 	}
 }
 
-func sendMessagesToChannels(message *Message) {
+func (s *Server) sendMessagesToAllStreams(messageToBeBroadcasted *Message) {
 	for i := 0; i < count; i++ {
-		var send = true
-		for j := 0; j < deleteCount; j++ {
-			if deleted[j] == i {
-				send = false
-			}
-		}
-		if send {
-			channels[i] <- *message
-		}
+		sendMessage(*messageToBeBroadcasted, streams[i], s)
 	}
 }
 
 func (s *Server) Chat(stream proto.MessagingService_ChatServer) error {
-	var index = creatingNewChannelAtIndex()
-	go s.broadcastMessage(index, stream)
+	streams[count] = stream
+	count++
 	for {
 		in, err := stream.Recv()
 		if err == io.EOF {
@@ -97,16 +87,15 @@ func (s *Server) Chat(stream proto.MessagingService_ChatServer) error {
 		s.updateTimestamp(int(in.TimeStamp), &m)
 		if in.Message == "leave" {
 			log.Printf("Lamport timestamp: %d, Client with name %s left the chat", s.timestamp, in.ClientName)
-			sendMessagesToChannels(&Message{
+			s.sendMessagesToAllStreams(&Message{
 				id:      in.Id,
 				name:    in.ClientName,
 				message: in.ClientName + " left the Chitty-chat",
 			})
-			deleted[deleteCount] = index
-			deleteCount++
+
 		} else {
 			log.Printf("Lamport timestamp: %d, Client with name %s sent this message: %s\n", s.timestamp, in.ClientName, in.Message)
-			sendMessagesToChannels(&Message{
+			s.sendMessagesToAllStreams(&Message{
 				id:      in.Id,
 				name:    in.ClientName,
 				message: in.Message,
@@ -115,17 +104,7 @@ func (s *Server) Chat(stream proto.MessagingService_ChatServer) error {
 	}
 }
 
-func (s *Server) broadcastMessage(index int, stream proto.MessagingService_ChatServer) {
-	for {
-		var messageToBeBroadcasted = <-channels[index]
-
-		if err := sendMessage(messageToBeBroadcasted, stream, s); err != nil {
-			log.Fatalln("could not send message" + err.Error())
-		}
-	}
-}
-
-func sendMessage(message Message, stream proto.MessagingService_ChatServer, s *Server) error {
+func sendMessage(message Message, stream proto.MessagingService_ChatServer, s *Server) {
 	s.updateTimestamp(s.timestamp, &m)
 
 	mes := &proto.Message{
@@ -134,21 +113,16 @@ func sendMessage(message Message, stream proto.MessagingService_ChatServer, s *S
 		Message:    message.message,
 		TimeStamp:  int64(s.timestamp),
 	}
+	// only sends message if stream is open
+	select {
+	case <-stream.Context().Done():
+		return
+	default:
+		log.Printf("Lamport timestamp %d, Sending message", s.timestamp)
 
-	log.Printf("Lamport timestamp %d, Sending message", s.timestamp)
-
-	if err := stream.Send(mes); err != nil {
-		return err
+		stream.Send(mes)
 	}
-	return nil
-}
 
-func creatingNewChannelAtIndex() int {
-	channel := make(chan Message)
-	var index = count
-	channels[index] = channel
-	count++
-	return index
 }
 
 func (s *Server) updateTimestamp(newTimestamp int, m *sync.Mutex) {
