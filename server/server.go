@@ -128,7 +128,7 @@ func (s *Server) broadcastMessage(index int, stream proto.MessagingService_ChatS
 func sendMessage(message Message, stream proto.MessagingService_ChatServer, s *Server) error {
 	s.updateTimestamp(s.timestamp, &m)
 
-	mes := &proto.ClientSendMessage{
+	mes := &proto.Message{
 		Id:         message.id,
 		ClientName: message.name,
 		Message:    message.message,

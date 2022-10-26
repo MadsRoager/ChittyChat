@@ -71,7 +71,7 @@ func readInput(client *Client, serverConnection proto.MessagingServiceClient, st
 
 func handleMessageInput(client *Client, serverConnection proto.MessagingServiceClient, input string, stream proto.MessagingService_ChatClient) {
 	log.Printf("Lamport timestamp %d, Sending message", client.timestamp)
-	err := stream.Send(&proto.ClientSendMessage{ClientName: client.name, Message: input, TimeStamp: int64(client.timestamp)})
+	err := stream.Send(&proto.Message{ClientName: client.name, Message: input, TimeStamp: int64(client.timestamp)})
 	if err != nil {
 		log.Fatalln("Could not send message")
 	}
@@ -79,7 +79,7 @@ func handleMessageInput(client *Client, serverConnection proto.MessagingServiceC
 
 func handleLeave(client *Client, serverConnection proto.MessagingServiceClient, stream proto.MessagingService_ChatClient) {
 	log.Printf("Lamport timestamp %d, Leaving", client.timestamp)
-	err := stream.Send(&proto.ClientSendMessage{ClientName: client.name, Message: "leave", TimeStamp: int64(client.timestamp)})
+	err := stream.Send(&proto.Message{ClientName: client.name, Message: "leave", TimeStamp: int64(client.timestamp)})
 
 	if err != nil {
 		log.Fatalln("Could not leave server")
@@ -102,7 +102,7 @@ func establishConnectionToChat(client *Client, serverConnection proto.MessagingS
 		log.Fatalln("could not send join chat")
 	}
 	waitc := make(chan struct{})
-	stream.Send(&proto.ClientSendMessage{ClientName: client.name, Message: "Joined the server", TimeStamp: int64(client.timestamp)})
+	stream.Send(&proto.Message{ClientName: client.name, Message: "Joined the server", TimeStamp: int64(client.timestamp)})
 	go printReceivedMessage(stream, client, waitc)
 
 	readInput(client, serverConnection, stream)

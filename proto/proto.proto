@@ -4,7 +4,7 @@ package awesomeProject;
 
 option go_package = "proto/proto";
 
-message clientSendMessage {
+message Message {
   string clientName = 1;
   string message = 2;
   int64 id = 3;
@@ -12,5 +12,5 @@ message clientSendMessage {
 }
 
 service MessagingService {
-  rpc Chat(stream clientSendMessage) returns (stream clientSendMessage);
+  rpc Chat(stream Message) returns (stream Message);
 }
