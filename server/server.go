@@ -67,72 +67,85 @@ func startServer(server *Server) {
 	}
 }
 
-func (s *Server) sendMessagesToAllStreams(messageToBeBroadcasted *Message) {
-	for i := 0; i < count; i++ {
-		sendMessage(*messageToBeBroadcasted, streams[i], s)
-	}
-}
-
-func (s *Server) Chat(stream proto.MessagingService_ChatServer) error {
+func (server *Server) Chat(stream proto.MessagingService_ChatServer) error {
 	streams[count] = stream
 	count++
 	for {
-		in, err := stream.Recv()
-		if err == io.EOF {
-			return nil
-		}
+		messageFromClient, err := receiveMessageFromClient(stream)
 		if err != nil {
 			return err
 		}
-		s.updateTimestamp(int(in.TimeStamp), &m)
-		if in.Message == "leave" {
-			log.Printf("Lamport timestamp: %d, Client with name %s left the chat", s.timestamp, in.ClientName)
-			s.sendMessagesToAllStreams(&Message{
-				id:      in.Id,
-				name:    in.ClientName,
-				message: in.ClientName + " left the Chitty-chat",
-			})
 
-		} else {
-			log.Printf("Lamport timestamp: %d, Client with name %s sent this message: %s\n", s.timestamp, in.ClientName, in.Message)
-			s.sendMessagesToAllStreams(&Message{
-				id:      in.Id,
-				name:    in.ClientName,
-				message: in.Message,
-			})
-		}
+		server.updateTimestamp(int(messageFromClient.TimeStamp), &m)
+
+		server.handleMessage(messageFromClient)
 	}
 }
 
-func sendMessage(message Message, stream proto.MessagingService_ChatServer, s *Server) {
-	s.updateTimestamp(s.timestamp, &m)
-
-	mes := &proto.Message{
-		Id:         message.id,
-		ClientName: message.name,
-		Message:    message.message,
-		TimeStamp:  int64(s.timestamp),
+func receiveMessageFromClient(stream proto.MessagingService_ChatServer) (*proto.Message, error) {
+	messageFromClient, err := stream.Recv()
+	if err == io.EOF {
+		return nil, nil
 	}
+	if err != nil {
+		return nil, err
+	}
+	return messageFromClient, nil
+}
+
+func (server *Server) handleMessage(messageFromClient *proto.Message) {
+	var messageToBeBroadcasted string
+	if messageFromClient.Message == "leave" {
+		log.Printf("Lamport timestamp: %d, Client with name %s left the chat",
+			server.timestamp, messageFromClient.ClientName)
+		messageToBeBroadcasted = messageFromClient.ClientName + " left the Chitty-chat"
+	} else {
+		log.Printf("Lamport timestamp: %d, Client with name %s sent this message: %s\n",
+			server.timestamp, messageFromClient.ClientName, messageFromClient.Message)
+		messageToBeBroadcasted = messageFromClient.Message
+	}
+
+	server.sendMessagesToAllStreams(&Message{
+		id:      messageFromClient.Id,
+		name:    messageFromClient.ClientName,
+		message: messageToBeBroadcasted,
+	})
+}
+
+func (server *Server) sendMessagesToAllStreams(messageToBeBroadcasted *Message) {
+	for i := 0; i < count; i++ {
+		sendMessage(*messageToBeBroadcasted, streams[i], server)
+	}
+}
+
+func sendMessage(message Message, stream proto.MessagingService_ChatServer, server *Server) {
 	// only sends message if stream is open
 	select {
 	case <-stream.Context().Done():
 		return
 	default:
-		log.Printf("Lamport timestamp %d, Sending message", s.timestamp)
+		server.updateTimestamp(server.timestamp, &m)
 
-		stream.Send(mes)
+		log.Printf("Lamport timestamp %d, Sending message", server.timestamp)
+
+		stream.Send(&proto.Message{
+			Id:         message.id,
+			ClientName: message.name,
+			Message:    message.message,
+			TimeStamp:  int64(server.timestamp),
+		})
 	}
 
 }
 
-func (s *Server) updateTimestamp(newTimestamp int, m *sync.Mutex) {
+func (server *Server) updateTimestamp(newTimestamp int, m *sync.Mutex) {
 	m.Lock()
-	s.timestamp = syncTimestamp(s.timestamp, newTimestamp)
-	s.timestamp++
+	server.timestamp = maxValue(server.timestamp, newTimestamp)
+	server.timestamp++
 	m.Unlock()
 }
 
-func syncTimestamp(new int, old int) int {
+func maxValue(new int, old int) int {
 	if new < old {
 		return old
 	}

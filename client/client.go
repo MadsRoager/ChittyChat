@@ -38,7 +38,9 @@ func main() {
 		portNumber: *clientPort,
 		timestamp:  0,
 	}
+
 	go startClient(client)
+
 	for {
 		time.Sleep(100 * time.Second)
 	}
@@ -51,39 +53,6 @@ func startClient(client *Client) {
 	serverConnection := getServerConnection(client)
 
 	go establishConnectionToChat(client, serverConnection)
-}
-
-func readInput(client *Client, serverConnection proto.MessagingServiceClient, stream proto.MessagingService_ChatClient) {
-	scanner := bufio.NewScanner(os.Stdin)
-	for scanner.Scan() {
-		client.updateTimestamp(client.timestamp, &m)
-
-		input := scanner.Text()
-		if input == "leave" {
-			handleLeave(client, serverConnection, stream)
-			time.Sleep(1 * time.Second)
-			os.Exit(0)
-		} else {
-			handleMessageInput(client, serverConnection, input, stream)
-		}
-	}
-}
-
-func handleMessageInput(client *Client, serverConnection proto.MessagingServiceClient, input string, stream proto.MessagingService_ChatClient) {
-	log.Printf("Lamport timestamp %d, Sending message", client.timestamp)
-	err := stream.Send(&proto.Message{ClientName: client.name, Message: input, TimeStamp: int64(client.timestamp)})
-	if err != nil {
-		log.Fatalln("Could not send message")
-	}
-}
-
-func handleLeave(client *Client, serverConnection proto.MessagingServiceClient, stream proto.MessagingService_ChatClient) {
-	log.Printf("Lamport timestamp %d, Leaving", client.timestamp)
-	err := stream.Send(&proto.Message{ClientName: client.name, Message: "leave", TimeStamp: int64(client.timestamp)})
-
-	if err != nil {
-		log.Fatalln("Could not leave server")
-	}
 }
 
 func getServerConnection(c *Client) proto.MessagingServiceClient {
@@ -125,14 +94,47 @@ func printReceivedMessage(stream proto.MessagingService_ChatClient, c *Client, w
 	}
 }
 
+func readInput(client *Client, serverConnection proto.MessagingServiceClient, stream proto.MessagingService_ChatClient) {
+	scanner := bufio.NewScanner(os.Stdin)
+	for scanner.Scan() {
+		client.updateTimestamp(client.timestamp, &m)
+
+		input := scanner.Text()
+		if input == "leave" {
+			handleLeave(client, serverConnection, stream)
+			time.Sleep(1 * time.Second)
+			os.Exit(0)
+		} else {
+			handleMessageInput(client, serverConnection, input, stream)
+		}
+	}
+}
+
+func handleMessageInput(client *Client, serverConnection proto.MessagingServiceClient, input string, stream proto.MessagingService_ChatClient) {
+	log.Printf("Lamport timestamp %d, Sending message", client.timestamp)
+	err := stream.Send(&proto.Message{ClientName: client.name, Message: input, TimeStamp: int64(client.timestamp)})
+	if err != nil {
+		log.Fatalln("Could not send message")
+	}
+}
+
+func handleLeave(client *Client, serverConnection proto.MessagingServiceClient, stream proto.MessagingService_ChatClient) {
+	log.Printf("Lamport timestamp %d, Leaving", client.timestamp)
+	err := stream.Send(&proto.Message{ClientName: client.name, Message: "leave", TimeStamp: int64(client.timestamp)})
+
+	if err != nil {
+		log.Fatalln("Could not leave server")
+	}
+}
+
 func (c *Client) updateTimestamp(newTimestamp int, m *sync.Mutex) {
 	m.Lock()
-	c.timestamp = syncTimestamp(c.timestamp, newTimestamp)
+	c.timestamp = maxValue(c.timestamp, newTimestamp)
 	c.timestamp++
 	m.Unlock()
 }
 
-func syncTimestamp(new int, old int) int {
+func maxValue(new int, old int) int {
 	if new < old {
 		return old
 	}
