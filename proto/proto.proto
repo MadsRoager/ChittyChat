@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package awesomeProject;
+package ChittyChat;
 
 option go_package = "proto/proto";
 
