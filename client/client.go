@@ -55,13 +55,13 @@ func startClient(client *Client) {
 	go establishConnectionToChat(client, serverConnection)
 }
 
-func getServerConnection(c *Client) proto.MessagingServiceClient {
+func getServerConnection(client *Client) proto.MessagingServiceClient {
 	conn, err := grpc.Dial(":"+strconv.Itoa(*serverPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
 		log.Fatalln("Could not dial server")
 	}
-	c.updateTimestamp(c.timestamp, &m)
-	log.Printf("Lamport timestamp: %d, Joined the server", c.timestamp)
+	client.updateTimestamp(client.timestamp, &m)
+	log.Printf("Lamport timestamp: %d, Joined the server", client.timestamp)
 	return proto.NewMessagingServiceClient(conn)
 }
 
@@ -79,7 +79,7 @@ func establishConnectionToChat(client *Client, serverConnection proto.MessagingS
 	<-waitc
 }
 
-func printReceivedMessage(stream proto.MessagingService_ChatClient, c *Client, waitc chan struct{}) {
+func printReceivedMessage(stream proto.MessagingService_ChatClient, client *Client, waitc chan struct{}) {
 	for {
 		message, err := stream.Recv()
 		if err == io.EOF {
@@ -89,8 +89,8 @@ func printReceivedMessage(stream proto.MessagingService_ChatClient, c *Client, w
 		if err != nil {
 			log.Fatalf("client failed: %v", err)
 		}
-		c.updateTimestamp(int(message.TimeStamp), &m)
-		log.Printf("Lamport timestamp: %d, id: %d name: %s, message: %s", c.timestamp, message.Id, message.ClientName, message.Message)
+		client.updateTimestamp(int(message.TimeStamp), &m)
+		log.Printf("Lamport timestamp: %d, id: %d name: %s, message: %s", client.timestamp, message.Id, message.ClientName, message.Message)
 	}
 }
 
@@ -127,10 +127,10 @@ func handleLeave(client *Client, serverConnection proto.MessagingServiceClient, 
 	}
 }
 
-func (c *Client) updateTimestamp(newTimestamp int, m *sync.Mutex) {
+func (client *Client) updateTimestamp(newTimestamp int, m *sync.Mutex) {
 	m.Lock()
-	c.timestamp = maxValue(c.timestamp, newTimestamp)
-	c.timestamp++
+	client.timestamp = maxValue(client.timestamp, newTimestamp)
+	client.timestamp++
 	m.Unlock()
 }
 
