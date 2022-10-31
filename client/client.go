@@ -38,7 +38,9 @@ func main() {
 		portNumber: *clientPort,
 		timestamp:  0,
 	}
+
 	go startClient(client)
+
 	for {
 		time.Sleep(100 * time.Second)
 	}
@@ -51,6 +53,45 @@ func startClient(client *Client) {
 	serverConnection := getServerConnection(client)
 
 	go establishConnectionToChat(client, serverConnection)
+}
+
+func getServerConnection(client *Client) proto.MessagingServiceClient {
+	conn, err := grpc.Dial(":"+strconv.Itoa(*serverPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		log.Fatalln("Could not dial server")
+	}
+	client.updateTimestamp(client.timestamp, &m)
+	log.Printf("Lamport timestamp: %d, Joined the server", client.timestamp)
+	return proto.NewMessagingServiceClient(conn)
+}
+
+func establishConnectionToChat(client *Client, serverConnection proto.MessagingServiceClient) {
+	stream, err := serverConnection.Chat(context.Background())
+	if err != nil {
+		log.Fatalln("could not send join chat")
+	}
+	waitc := make(chan struct{})
+	stream.Send(&proto.Message{ClientName: client.name, Message: "Joined the server", TimeStamp: int64(client.timestamp)})
+	go printReceivedMessage(stream, client, waitc)
+
+	readInput(client, serverConnection, stream)
+	stream.CloseSend()
+	<-waitc
+}
+
+func printReceivedMessage(stream proto.MessagingService_ChatClient, client *Client, waitc chan struct{}) {
+	for {
+		message, err := stream.Recv()
+		if err == io.EOF {
+			close(waitc)
+			return
+		}
+		if err != nil {
+			log.Fatalf("client failed: %v", err)
+		}
+		client.updateTimestamp(int(message.TimeStamp), &m)
+		log.Printf("Lamport timestamp: %d, id: %d name: %s, message: %s", client.timestamp, message.Id, message.ClientName, message.Message)
+	}
 }
 
 func readInput(client *Client, serverConnection proto.MessagingServiceClient, stream proto.MessagingService_ChatClient) {
@@ -86,53 +127,14 @@ func handleLeave(client *Client, serverConnection proto.MessagingServiceClient, 
 	}
 }
 
-func getServerConnection(c *Client) proto.MessagingServiceClient {
-	conn, err := grpc.Dial(":"+strconv.Itoa(*serverPort), grpc.WithTransportCredentials(insecure.NewCredentials()))
-	if err != nil {
-		log.Fatalln("Could not dial server")
-	}
-	c.updateTimestamp(c.timestamp, &m)
-	log.Printf("Lamport timestamp: %d, Joined the server", c.timestamp)
-	return proto.NewMessagingServiceClient(conn)
-}
-
-func establishConnectionToChat(client *Client, serverConnection proto.MessagingServiceClient) {
-	stream, err := serverConnection.Chat(context.Background())
-	if err != nil {
-		log.Fatalln("could not send join chat")
-	}
-	waitc := make(chan struct{})
-	stream.Send(&proto.Message{ClientName: client.name, Message: "Joined the server", TimeStamp: int64(client.timestamp)})
-	go printReceivedMessage(stream, client, waitc)
-
-	readInput(client, serverConnection, stream)
-	stream.CloseSend()
-	<-waitc
-}
-
-func printReceivedMessage(stream proto.MessagingService_ChatClient, c *Client, waitc chan struct{}) {
-	for {
-		message, err := stream.Recv()
-		if err == io.EOF {
-			close(waitc)
-			return
-		}
-		if err != nil {
-			log.Fatalf("client failed: %v", err)
-		}
-		c.updateTimestamp(int(message.TimeStamp), &m)
-		log.Printf("Lamport timestamp: %d, Name: %s: %s", c.timestamp, message.ClientName, message.Message)
-	}
-}
-
-func (c *Client) updateTimestamp(newTimestamp int, m *sync.Mutex) {
+func (client *Client) updateTimestamp(newTimestamp int, m *sync.Mutex) {
 	m.Lock()
-	c.timestamp = syncTimestamp(c.timestamp, newTimestamp)
-	c.timestamp++
+	client.timestamp = maxValue(client.timestamp, newTimestamp)
+	client.timestamp++
 	m.Unlock()
 }
 
-func syncTimestamp(new int, old int) int {
+func maxValue(new int, old int) int {
 	if new < old {
 		return old
 	}

@@ -26,9 +26,7 @@ type Message struct {
 	message string
 }
 
-var channels [100]chan Message
-var deleted [100]int
-var deleteCount = 0
+var streams [100]proto.MessagingService_ChatServer
 var count = 0
 var m sync.Mutex
 
@@ -69,96 +67,85 @@ func startServer(server *Server) {
 	}
 }
 
-func sendMessagesToChannels(message *Message) {
-	for i := 0; i < count; i++ {
-		var send = true
-		for j := 0; j < deleteCount; j++ {
-			if deleted[j] == i {
-				send = false
-			}
-		}
-		if send {
-			channels[i] <- *message
-		}
-	}
-}
-
-func (s *Server) Chat(stream proto.MessagingService_ChatServer) error {
-	var index = creatingNewChannelAtIndex()
-	go s.broadcastMessage(index, stream)
+func (server *Server) Chat(stream proto.MessagingService_ChatServer) error {
+	streams[count] = stream
+	count++
 	for {
-		in, err := stream.Recv()
-		if err == io.EOF {
-			return nil
-		}
+		messageFromClient, err := receiveMessageFromClient(stream)
 		if err != nil {
 			return err
 		}
-		s.updateTimestamp(int(in.TimeStamp), &m)
-		if in.Message == "leave" {
-			log.Printf("Lamport timestamp: %d, Client with name %s left the chat", s.timestamp, in.ClientName)
-			sendMessagesToChannels(&Message{
-				id:      in.Id,
-				name:    in.ClientName,
-				message: in.ClientName + " left the Chitty-chat",
-			})
-			deleted[deleteCount] = index
-			deleteCount++
-		} else {
-			log.Printf("Lamport timestamp: %d, Client with name %s sent this message: %s\n", s.timestamp, in.ClientName, in.Message)
-			sendMessagesToChannels(&Message{
-				id:      in.Id,
-				name:    in.ClientName,
-				message: in.Message,
-			})
-		}
+
+		server.updateTimestamp(int(messageFromClient.TimeStamp), &m)
+
+		server.handleMessage(messageFromClient)
 	}
 }
 
-func (s *Server) broadcastMessage(index int, stream proto.MessagingService_ChatServer) {
-	for {
-		var messageToBeBroadcasted = <-channels[index]
+func receiveMessageFromClient(stream proto.MessagingService_ChatServer) (*proto.Message, error) {
+	messageFromClient, err := stream.Recv()
+	if err == io.EOF {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return messageFromClient, nil
+}
 
-		if err := sendMessage(messageToBeBroadcasted, stream, s); err != nil {
-			log.Fatalln("could not send message" + err.Error())
-		}
+func (server *Server) handleMessage(messageFromClient *proto.Message) {
+	var messageToBeBroadcasted string
+	if messageFromClient.Message == "leave" {
+		log.Printf("Lamport timestamp: %d, Client with name %s left the chat",
+			server.timestamp, messageFromClient.ClientName)
+		messageToBeBroadcasted = messageFromClient.ClientName + " left the Chitty-chat"
+	} else {
+		log.Printf("Lamport timestamp: %d, Client with name %s sent this message: %s\n",
+			server.timestamp, messageFromClient.ClientName, messageFromClient.Message)
+		messageToBeBroadcasted = messageFromClient.Message
+	}
+
+	server.sendMessagesToAllStreams(&Message{
+		id:      messageFromClient.Id,
+		name:    messageFromClient.ClientName,
+		message: messageToBeBroadcasted,
+	})
+}
+
+func (server *Server) sendMessagesToAllStreams(messageToBeBroadcasted *Message) {
+	for i := 0; i < count; i++ {
+		sendMessage(*messageToBeBroadcasted, streams[i], server)
 	}
 }
 
-func sendMessage(message Message, stream proto.MessagingService_ChatServer, s *Server) error {
-	s.updateTimestamp(s.timestamp, &m)
+func sendMessage(message Message, stream proto.MessagingService_ChatServer, server *Server) {
+	// only sends message if stream is open
+	select {
+	case <-stream.Context().Done():
+		return
+	default:
+		server.updateTimestamp(server.timestamp, &m)
 
-	mes := &proto.Message{
-		Id:         message.id,
-		ClientName: message.name,
-		Message:    message.message,
-		TimeStamp:  int64(s.timestamp),
+		log.Printf("Lamport timestamp %d, Sending message", server.timestamp)
+
+		stream.Send(&proto.Message{
+			Id:         message.id,
+			ClientName: message.name,
+			Message:    message.message,
+			TimeStamp:  int64(server.timestamp),
+		})
 	}
 
-	log.Printf("Lamport timestamp %d, Sending message", s.timestamp)
-
-	if err := stream.Send(mes); err != nil {
-		return err
-	}
-	return nil
 }
 
-func creatingNewChannelAtIndex() int {
-	channel := make(chan Message)
-	var index = count
-	channels[index] = channel
-	count++
-	return index
-}
-
-func (s *Server) updateTimestamp(newTimestamp int, m *sync.Mutex) {
+func (server *Server) updateTimestamp(newTimestamp int, m *sync.Mutex) {
 	m.Lock()
-	s.timestamp = syncTimestamp(s.timestamp, newTimestamp)
-	s.timestamp++
+	server.timestamp = maxValue(server.timestamp, newTimestamp)
+	server.timestamp++
 	m.Unlock()
 }
 
-func syncTimestamp(new int, old int) int {
+func maxValue(new int, old int) int {
 	if new < old {
 		return old
 	}
