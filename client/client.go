@@ -90,7 +90,7 @@ func printReceivedMessage(stream proto.MessagingService_ChatClient, client *Clie
 			log.Fatalf("client failed: %v", err)
 		}
 		client.updateTimestamp(int(message.TimeStamp), &m)
-		log.Printf("Lamport timestamp: %d, id: %d name: %s, message: %s", client.timestamp, message.Id, message.ClientName, message.Message)
+		log.Printf("Lamport timestamp: %d, name: %s: %s", client.timestamp, message.ClientName, message.Message)
 	}
 }
 
